@@ -73,7 +73,9 @@ bool LX200AstroPhysics::Connect()
         // lot of communication errors.
         tty_clr_trailing_read_lf(1);
     }
-    return LX200Generic::Connect();
+
+    // If ApInitialize fails, probably have to turn some buttons red. Verify!
+    return LX200Generic::Connect() && ApInitialize(true);
 }
 
 bool LX200AstroPhysics::initProperties()
@@ -81,11 +83,6 @@ bool LX200AstroPhysics::initProperties()
     LX200Generic::initProperties();
 
     timeFormat = LX200_24;
-
-    IUFillSwitch(&StartUpS[0], "COLD", "Cold", ISS_OFF);
-    IUFillSwitch(&StartUpS[1], "WARM", "Warm", ISS_OFF);
-    IUFillSwitchVector(&StartUpSP, StartUpS, 2, getDeviceName(), "STARTUP", "Startup", MAIN_CONTROL_TAB, IP_RW,
-                       ISR_1OFMANY, 0, IPS_IDLE);
 
     IUFillNumber(&HourangleCoordsN[0], "HA", "HA H:M:S", "%10.6m", -24., 24., 0., 0.);
     IUFillNumber(&HourangleCoordsN[1], "DEC", "Dec D:M:S", "%10.6m", -90.0, 90.0, 0., 0.);
@@ -168,7 +165,8 @@ bool LX200AstroPhysics::initProperties()
     IUFillNumberVector(&APSiderealTimeNP, APSiderealTimeN, 1, getDeviceName(), "AP_SIDEREAL_TIME", "ap sidereal time", SITE_TAB,
                        IP_RO, 60, IPS_OK);
 
-    //SetParkDataType(PARK_AZ_ALT);
+    // Without below, it will not write the ParkData.xml file.
+    SetParkDataType(PARK_AZ_ALT);
 
     return true;
 }
@@ -176,8 +174,6 @@ bool LX200AstroPhysics::initProperties()
 void LX200AstroPhysics::ISGetProperties(const char *dev)
 {
     LX200Generic::ISGetProperties(dev);
-
-    defineProperty(&StartUpSP);
 
     // MSF 2018/04/10 - disable this behavior for now - we want to have
     //                  UnparkFromSP to always start out as "Last Parked" for safety
@@ -204,11 +200,10 @@ bool LX200AstroPhysics::updateProperties()
 {
     LX200Generic::updateProperties();
 
-    defineProperty(&StartUpSP);
-
     if (isConnected())
     {
-        deleteProperty("TELESCOPE_PIER_SIDE");
+        // Enable the pier-side property so Ekos can meridian flip.
+        // deleteProperty("TELESCOPE_PIER_SIDE");
         if (firmwareVersion < MCV_G)
         {
             deleteProperty(UsePulseCmdSP.name);
@@ -503,50 +498,36 @@ bool LX200AstroPhysics::ISNewNumber(const char *dev, const char *name, double va
     return LX200Generic::ISNewNumber(dev, name, values, names, n);
 }
 
-bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
+bool LX200AstroPhysics::ApInitialize(bool cold)
 {
-    int err = 0;
+        // Below logic is not yet setup when this is called, so can't test for it.
+        // if (!isConnected())
+        // {
+        //     LOG_ERROR("ApInitialize called before mount is connected");
+        //     return false;
+        // }
+        //
+        // // rely on INDI's logic
+        // if (!(TimeTP.s == IPS_OK && LocationNP.s == IPS_OK))
+        // {
+        //     LOGF_ERROR("Time is %s ok and location is %s ok must be set before mount initialization is invoked.",
+        //                TimeTP.s == IPS_OK ? "" : "not ", LocationNP.s == IPS_OK ? "" : "not " );
+        //     return false;
+        // }
 
-    // ignore if not ours //
-    if (strcmp(getDeviceName(), dev))
-        return false;
-
-    // Reintroduce cold/warm start from lx200ap.cpp in order to check if a valid park position is available.
-    // AP's startup sequence is not mandatory with the exception of :PO.
-    // Button Startup is defined outside "connected" state only to make it more visible to the user.
-    if (!strcmp(name, StartUpSP.name))
-    {
-        if (!isConnected())
-        {
-            StartUpSP.s = IPS_ALERT;
-            LOG_ERROR("Connect first before reading mount's park configuration");
-            IDSetSwitch(&StartUpSP, nullptr);
-            return false;
-        }
-        int switch_nr;
-
-        IUUpdateSwitch(&StartUpSP, states, names, n);
-
-        if (StartUpSP.s == IPS_OK)
-        {
-            LOG_INFO("Mount's park configuration already read");
-            StartUpSP.s = IPS_OK;
-            IDSetSwitch(&StartUpSP, nullptr);
-            return true;
-        }
-        // rely on INDI's logic
-        if (!(TimeTP.s == IPS_OK && LocationNP.s == IPS_OK))
-        {
-            StartUpSP.s = IPS_ALERT;
-            LOGF_ERROR("Time is %s ok and location is %s ok must be set before mount initialization is invoked.",
-                       TimeTP.s == IPS_OK ? "" : "not ", LocationNP.s == IPS_OK ? "" : "not " );
-            IDSetSwitch(&StartUpSP, nullptr);
-            return false;
-        }
-
+        // Removed the parkDataValid check. Verify!
         // check only the status of the ParkData.xml, do not set ParkSP
-        bool parkDataValid = (LoadParkData() == nullptr);
-        if (parkDataValid && isParked())
+        // bool parkDataValid = (LoadParkData() == nullptr);
+
+        // isParked is not yet valid. Use IsMountParked, which is an AP-specific
+        // method, and then below sync this information with Indi.
+        // Double check this, but don't require that a ParkData.xml exists. Verify!
+        // if (parkDataValid && IsMountParked())
+
+        bool isAPParked = false;
+        if (!IsMountParked(&isAPParked))
+          return false;
+        if (isAPParked)
         {
             if (!loadConfig(true, UnparkFromSP.name))
             {
@@ -567,21 +548,10 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
         }
         else
         {
-            if (StartUpSP.sp[0].s == ISS_ON)
-            {
-                LOG_WARN("Set 'Park To' and 'Unpark From ?' manually and save dirver's config and park data");
-                SetParked(true);
-
-                StartUpSP.s = IPS_OK;
-                IDSetSwitch(&StartUpSP, nullptr);
-            }
-            else
-            {
-                LOG_WARN("No ParkData.xml or parkstatus is false, do a cold start");
-                StartUpSP.s = IPS_ALERT;
-                IDSetSwitch(&StartUpSP, nullptr);
-            }
-            return false;
+            // Really not sure I understand this case, nor whether we need a cold/warm control. Verify!
+            SetParked(false);
+            if (!cold)
+              return true;
         }
 
         if (isSimulation())
@@ -596,18 +566,16 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
             VersionTP.s = IPS_OK;
             IDSetText(&VersionTP, nullptr);
 
-            StartUpSP.s = IPS_OK;
-            IDSetSwitch(&StartUpSP, "Mount initialized.");
-
             return true;
 
         }
         // Make sure that the mount is setup according to the properties
-        switch_nr = IUFindOnSwitchIndex(&TrackModeSP);
+        int switch_nr = IUFindOnSwitchIndex(&TrackModeSP);
 
+        int err = 0;
         if ( (err = selectAPTrackingMode(PortFD, switch_nr)) < 0)
         {
-            LOGF_ERROR("StartUpSP: Error setting tracking mode (%d).", err);
+            LOGF_ERROR("ApInitialize: Error setting tracking mode (%d).", err);
             return false;
         }
 
@@ -621,7 +589,7 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
         switch_nr = IUFindOnSwitchIndex(&SlewRateSP);
         if ( (err = selectAPMoveToRate(PortFD, switch_nr)) < 0)
         {
-            LOGF_ERROR("StartUpSP: Error setting move rate (%d).", err);
+            LOGF_ERROR("ApInitialize: Error setting move rate (%d).", err);
             return false;
         }
 
@@ -632,7 +600,7 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
         switch_nr = IUFindOnSwitchIndex(&APSlewSpeedSP);
         if ( (err = selectAPSlewRate(PortFD, switch_nr)) < 0)
         {
-            LOGF_ERROR("StartUpSP: Error setting slew to rate (%d).", err);
+            LOGF_ERROR("ApInitialize: Error setting slew to rate (%d).", err);
             return false;
         }
         APSlewSpeedSP.s = IPS_OK;
@@ -653,11 +621,16 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
         IUSaveText(&VersionT[0], versionString);
         IDSetText(&VersionTP, nullptr);
 
-        StartUpSP.s = IPS_OK;
-        IDSetSwitch(&StartUpSP, "Mount initialized.");
-
         return true;
-    }
+}
+
+bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n)
+{
+    int err = 0;
+
+    // ignore if not ours //
+    if (strcmp(getDeviceName(), dev))
+        return false;
 
     // =======================================
     // Swap Buttons
@@ -792,12 +765,8 @@ bool LX200AstroPhysics::ISNewSwitch(const char *dev, const char *name, ISState *
 
     if (!strcmp(name, ParkSP.name))
     {
-        if (StartUpSP.s != IPS_OK)
-        {
-            LOG_ERROR("Read driver's config first");
-            return false;
-        }
     }
+    
     // ===========================================================
     // Park To positions
     // ===========================================================
@@ -855,6 +824,7 @@ bool LX200AstroPhysics::ReadScopeStatus()
     // see method isParked()
     bool isAPParked = false;
     IsMountParked(&isAPParked);
+    fprintf(stderr, "ReadScopeStatus() -- %s\n", isAPParked ? "Parked" : "not Parked");
     if (!isAPParked)
     {
         double ha = get_local_hour_angle(lst, currentRA);
@@ -931,15 +901,23 @@ bool LX200AstroPhysics::ReadScopeStatus()
         return false;
     }
 
+    fprintf(stderr, "ReadScopeStatus() %d TracState=%d currentRA %f currentDEC %f\n",
+            __LINE__, TrackState, currentRA, currentDEC);
+
     if (TrackState == SCOPE_SLEWING)
     {
-        double dx = lastRA - currentRA;
-        double dy = lastDE - currentDEC;
+        const double dx = fabs(lastRA - currentRA);
+        const double dy = fabs(lastDE - currentDEC);
+        fprintf(stderr, "Slewing: AZ: last %f cur %f d %f, ALT: last %f cur %f d %f\n",
+                lastRA, currentRA, dx, lastDE, currentDEC, dy);
 
         LOGF_DEBUG("Slewing... currentRA: %g dx: %g currentDE: %g dy: %g", currentRA, dx, currentDEC, dy);
 
-        // Wait until acknowledged
-        if (dx == 0 && dy == 0)
+        // Note, RA won't hit 0 if it's not tracking, becuase the RA changes when still!
+        // Dec might, though.
+        // 0 might work now that I "fixed" slewing...perhaps not when tracking is off.
+        // Verify!
+        if (dx < 1e-3 && dy < 1e-3)
         {
             TrackState = SCOPE_TRACKING;
             LOG_INFO("Slew is complete. Tracking...");
@@ -951,6 +929,7 @@ bool LX200AstroPhysics::ReadScopeStatus()
     }
     else if (TrackState == SCOPE_PARKING)
     {
+        fprintf(stderr, "Parking: RA/DEC = %.3f %.3f\n", currentRA, currentDEC);
         // new way
         char parkStatus;
         char slewStatus;
@@ -975,21 +954,27 @@ bool LX200AstroPhysics::ReadScopeStatus()
             return false;
         }
 
-        double dx = lastAZ - currentAz;
-        double dy = lastAL - currentAlt;
+        const double dx = fabs(lastAZ - currentAz);
+        const double dy = fabs(lastAL - currentAlt);
+        fprintf(stderr, "Parking AZ: last %.3f cur %.3f d %.3f, ALT: last %.3f cur %.3f d %.3f\n",
+                lastAZ, currentAz, dx, lastAL, currentAlt, dy);
 
         LOGF_DEBUG("Parking... currentAz: %g dx: %g currentAlt: %g dy: %g", currentAz, dx, currentAlt, dy);
 
         // if for some reason we check slew status BEFORE park motion starts make sure we dont consider park
         // action complete too early by checking how far from park position we are!
+
         if (slewcomplete && (dx > PARKTHRES || dy > PARKTHRES))
         {
             LOG_WARN("Parking... slew status indicates mount stopped by dx/dy too far from mount - continuing!");
 
+            fprintf(stderr, "set slewcomplete=false, as not at park position!!!!!!!!!\n");
             slewcomplete = false;
         }
 
-        if (slewcomplete || (dx <= PARKTHRES && dy <= PARKTHRES))
+        // Not sure why it hedged previously. Require slewcomplete for now. Verify!
+        // if (slewcomplete || (dx <= PARKTHRES && dy <= PARKTHRES))
+        if (slewcomplete)
         {
             LOG_DEBUG("Parking slew is complete. Asking astrophysics mount to park...");
 
@@ -1548,10 +1533,6 @@ bool LX200AstroPhysics::Disconnect()
     locationUpdated = false;
     mountInitialized = false;
 #endif
-    IUResetSwitch(&StartUpSP);
-    StartUpS[0].s = ISS_OFF;
-    StartUpSP.s = IPS_IDLE;
-    IDSetSwitch(&StartUpSP, nullptr);
 
     return LX200Generic::Disconnect();
 }
@@ -1671,7 +1652,7 @@ bool LX200AstroPhysics::updateTime(ln_date *utc, double utc_offset)
 }
 
 bool LX200AstroPhysics::updateLocation(double latitude, double longitude, double elevation)
-{
+{   
     INDI_UNUSED(elevation);
 
     LOG_DEBUG("LX200AstroPhysics::updateLocation entry");
@@ -1682,7 +1663,18 @@ bool LX200AstroPhysics::updateLocation(double latitude, double longitude, double
         return false;
     }
 
-    if (!isSimulation() && setAPSiteLongitude(PortFD, 360.0 - longitude) < 0)
+    // Why is it 360-longitude? Verify!
+    double apLongitude = 360 - longitude ;
+    while (apLongitude < 0)
+        apLongitude += 360;
+    while (apLongitude > 360)
+        apLongitude -= 360;
+
+    char errStr[200];
+    sprintf(errStr, "updateLocation(): Setting site longitude coordinates, %f %f", longitude, apLongitude);
+    LOG_ERROR(errStr);
+
+    if (!isSimulation() && setAPSiteLongitude(PortFD, apLongitude) < 0)
     {
         LOG_ERROR("Error setting site longitude coordinates");
         return false;
@@ -1961,7 +1953,10 @@ bool LX200AstroPhysics::UnPark()
         }
         // NO: Enable tracking
         //2020-03-17, wildi, was SetTrackEnabled(true);
-        SetTrackEnabled(false);
+        // Removed below. Don't understand why tracking disabled. Never enabled. Verify!
+        // SetTrackEnabled(false);
+        SetTrackEnabled(true);
+
         TrackState = SCOPE_IDLE;
     }
     else

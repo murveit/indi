@@ -136,6 +136,7 @@ class LX200AstroPhysics : public LX200Generic
         ITextVectorProperty VersionTP;
 
     private:
+        bool ApInitialize(bool cold);
 #ifdef no
         bool initMount();
 #endif
