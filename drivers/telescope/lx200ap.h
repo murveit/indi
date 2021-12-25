@@ -36,7 +36,8 @@ class LX200AstroPhysics : public LX200Generic
                        MCV_T, MCV_U, MCV_V, MCV_UNKNOWN
                      } ControllerVersion;
         typedef enum { GTOCP1 = 1, GTOCP2, GTOCP3, GTOCP4, GTOCP_UNKNOWN} ServoVersion;
-        typedef enum { PARK_LAST = 0, PARK_CUSTOM = 0, PARK_PARK1 = 1, PARK_PARK2 = 2, PARK_PARK3 = 3, PARK_PARK4 = 4} ParkPosition;
+        // This is shared by ParkFrom and ParkTo, and should be coordinated with those.
+        typedef enum { PARK_CUSTOM = 0, PARK_LAST = 0, PARK_PARK1 = 1, PARK_PARK2 = 2, PARK_PARK3 = 3, PARK_PARK4 = 4, PARK_CURRENT = 5} ParkPosition;
         enum APTelescopeSlewRate {AP_SLEW_GUIDE, AP_SLEW_12X, AP_SLEW_64X, AP_SLEW_600X, AP_SLEW_1200X};
         virtual bool ISNewNumber(const char *dev, const char *name, double values[], char *names[], int n) override;
         virtual bool ISNewSwitch(const char *dev, const char *name, ISState *states, char *names[], int n) override;
@@ -126,7 +127,7 @@ class LX200AstroPhysics : public LX200Generic
         ISwitch UnparkFromS[5];
         ISwitchVectorProperty UnparkFromSP;
 
-        ISwitch ParkToS[5];
+        ISwitch ParkToS[6];
         ISwitchVectorProperty ParkToSP;
 
         INumberVectorProperty APUTCOffsetNP;
@@ -137,6 +138,8 @@ class LX200AstroPhysics : public LX200Generic
 
     private:
         bool ApInitialize(bool cold);
+        bool updateAPLocation(double latitude, double longitude, double elevation);
+
 #ifdef no
         bool initMount();
 #endif
