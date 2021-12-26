@@ -851,6 +851,8 @@ char* trackStateString(INDI::Telescope::TelescopeStatus state)
             static char parkStr[] = "Parked";
             return parkStr;
     }
+    static char emptyStr[] = "???";
+    return emptyStr;
 }
 
 bool LX200AstroPhysics::ReadScopeStatus()
