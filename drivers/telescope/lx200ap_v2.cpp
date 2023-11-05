@@ -184,8 +184,8 @@ bool LX200AstroPhysicsV2::initProperties()
                        IP_RO, 60, IPS_OK);
 
     // Worm position
-    IUFillNumber(&APWormPositionN[0], "APWormPosition", "AP Worm Position", "%3.0f", 0, 1000, 1, 0);
-    IUFillNumberVector(&APWormPositionNP, APWormPositionN, 1, getDeviceName(), "APWormPosition", "AP Worm Position",
+    IUFillNumber(&APWormPositionN[0], "RAWormPosition", "RA Worm Position", "%3.0f", 0, 1000, 1, 0);
+    IUFillNumberVector(&APWormPositionNP, APWormPositionN, 1, getDeviceName(), "WORMPOSITIONS", "Worm Position",
                        MOTION_TAB, IP_RO, 0, IPS_IDLE);
 
     // PEC State
@@ -198,9 +198,9 @@ bool LX200AstroPhysicsV2::initProperties()
                      MOTION_TAB, IP_RO, 0, IPS_IDLE);
 
     // PEC Record button.
-    IUFillSwitch(&APPECRecordS[AP_PEC_RECORD_OFF], "APPECRecordOFF", "Off", ISS_ON);
-    IUFillSwitch(&APPECRecordS[AP_PEC_RECORD_ON], "APPECRecordON", "Record", ISS_OFF);
-    IUFillSwitchVector(&APPECRecordSP, APPECRecordS, 2, getDeviceName(), "APPECRecord", "Record PEC", MOTION_TAB,
+    IUFillSwitch(&APPECRecordS[AP_PEC_RECORD_OFF], "PPEC_TRAINING_OFF", "Off", ISS_ON);
+    IUFillSwitch(&APPECRecordS[AP_PEC_RECORD_ON], "PPEC_TRAINING_ON", "Record", ISS_OFF);
+    IUFillSwitchVector(&APPECRecordSP, APPECRecordS, 2, getDeviceName(), "PPEC_TRAINING", "Record PEC", MOTION_TAB,
                        IP_RW, ISR_ATMOST1, 60, IPS_IDLE);
 
     // Without below, it will not write the ParkData.xml file.
